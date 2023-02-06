@@ -32,7 +32,6 @@ interface ICampaign {
         uint256 campaignBal;
         address campaignWinner;
         uint256 winnerPayout;
-        uint256 devFees;
     }
 
         struct Bidder {
@@ -94,6 +93,7 @@ contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
     uint256 public ENTRY_FEE = 0.5 ether;
     uint256 private _platformFees = 5;   //5%
     address payable public devAddress; //payable?
+    uint256 public devFees;
 
 
     mapping(uint256 => CampaignDetails) public campaign_info;
@@ -125,11 +125,11 @@ contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
 
     event AcceptedBet(uint256 indexed _campaignId,address indexed _msgSender, uint256 indexed betAmount);
 
-/**
- * event RaceWinner emitted when the owner of this contract sets the winner and computes the winning bet
- */
-event RaceWinner(uint256 indexed _campaignId, address indexed  winningBetAddr, uint256 indexed winnerProceeds);
-    
+    /**
+     * event RaceWinner emitted when the owner of this contract sets the winner and computes the winning bet
+     */
+    event RaceWinner(uint256 indexed _campaignId, address indexed  winningBetAddr, uint256 indexed winnerProceeds);
+        
     
     /**
      * Developer address set by the owner of this contract
@@ -137,10 +137,15 @@ event RaceWinner(uint256 indexed _campaignId, address indexed  winningBetAddr, u
     event  DevAddressUpdated(address devAddress_);
 
 
-/**
- * event CampaignStageChanged emitted when the campaign stage is changed by the owner of the contract
- */
-event CampaignStageChanged(uint256 _campaignId, Stages _stage);
+    /**
+     * event Withdraw emitted when either the winner or the dev withdraw their balances
+     */
+    event Withdraw(address account,uint256  amount);
+
+    /**
+     * event CampaignStageChanged emitted when the campaign stage is changed by the owner of the contract
+     */
+    event CampaignStageChanged(uint256 _campaignId, Stages _stage);
     constructor () {
 
     }
@@ -154,7 +159,7 @@ event CampaignStageChanged(uint256 _campaignId, Stages _stage);
      */
 function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate) external virtual override onlyOwner returns (bool) {
     // require(league >0 && league<=3,"BettingCampaign: Invalid league ID MotoGp=1/Moto2=2/WSBK=3");
-    campaign_info[_totalCampaigns]= CampaignDetails(raceNum,raceDate,Stages.AcceptingBets, league,0,0,address(0),0,0);
+    campaign_info[_totalCampaigns]= CampaignDetails(raceNum,raceDate,Stages.AcceptingBets, league,0,0,address(0),0);
     // console.log( campaign_info[_totalCampaigns].stage);
     Stages test = campaign_info[_totalCampaigns].stage;
     _totalCampaigns = _totalCampaigns.add(1);
@@ -288,14 +293,9 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
                 _campaignWinner = WinnersArray[0].userAddress;
                 _timeStamp = WinnersArray[0].userBetTimeStamp;
 
-                // console.log("Number of ppl who bet on the Race winner:", WinnersArray.length);
-                // console.log(_winningBet,_campaignWinner,_timeStamp, campaign_info[_campaignId].campaignBal);
-
             for (uint256 i=1; i< WinnersArray.length; i++) {
-                // console.log(WinnersArray[i].userBetVal,
-                // WinnersArray[i].userAddress, WinnersArray[i].userBetTimeStamp, campaign_info[_campaignId].campaignBal);
-
-                if(WinnersArray[i].userBetVal> _winningBet) {
+ 
+               if(WinnersArray[i].userBetVal> _winningBet) {
                 _winningBet = WinnersArray[i].userBetVal;
                 _campaignWinner = WinnersArray[i].userAddress;
                 _timeStamp = WinnersArray[i].userBetTimeStamp;
@@ -309,13 +309,9 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
                 }
             }
 
-            // campaign_info[_campaignId].campaignWinner = _campaignWinner;
-        // console.log("\nWinningBet\n");
-        // console.log(_winningBet,_campaignWinner,_timeStamp, campaign_info[_campaignId].campaignBal);
          campaign_info[_campaignId].campaignWinner= _campaignWinner;
-
-        campaign_info[_campaignId].devFees = (campaign_info[_campaignId].campaignBal).mul(_platformFees).div(100);
-        campaign_info[_campaignId].winnerPayout = (campaign_info[_campaignId].campaignBal).sub(campaign_info[_campaignId].devFees);
+        devFees = (campaign_info[_campaignId].campaignBal).mul(_platformFees).div(100);
+        campaign_info[_campaignId].winnerPayout = (campaign_info[_campaignId].campaignBal).sub(devFees);
          return true;
     
 
@@ -327,16 +323,36 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
  *  @param _campaignId is the campaignID created for a certain race of MotoGP/Moto2 or WSBK.
  */
     function WithdrawWinnings(uint256 _campaignId) external payable virtual override nonReentrant {
-      require(_stageConfirmation(_campaignId,Stages.Payout),
+      require(campaign_info[_campaignId].stage == Stages.Payout,
         "BettingCampaign: Campaign isn't yet in the payout stage!");
-        uint256 c_Bal =  campaign_info[_campaignId].campaignBal;
-         campaign_info[_campaignId].campaignBal = 0;
-         require(campaign_info[_campaignId].campaignWinner!= address(0),"BettingContract: Invalid payout address");
+        require(campaign_info[_campaignId].campaignWinner!= address(0),"BettingContract: Invalid payout address");
+        require(_msgSender()== campaign_info[_campaignId].campaignWinner,"BettingContract: You didn't win this campaign!");
         
-        (bool success, ) = payable(campaign_info[_campaignId].campaignWinner).call{value: c_Bal}("");
+        uint256 c_WinnerBal = campaign_info[_campaignId].winnerPayout;
+        address c_WinnerAddr = campaign_info[_campaignId].campaignWinner;
+        campaign_info[_campaignId].winnerPayout = 0;
+        campaign_info[_campaignId].campaignBal = 0;
+        
+
+        (bool success, ) = payable(c_WinnerAddr).call{value: c_WinnerBal}("");
+         require(success, "BettingCampaign: Payout to the winner of the campaign failed!");
+        emit Withdraw(c_WinnerAddr,c_WinnerBal);
+    }
+
+
+function DevWithdraw() external payable nonReentrant { 
+    require( devAddress != address(0),"Betting Campaign: Owner hasn't set the developer address!");
+    require(_msgSender() == devAddress,"Betting Campaign: You're not the developer of this contract!");
+
+        uint256 _d_Fees = devFees;
+        devFees =0;
+        (bool success, ) = payable(devAddress).call{value: _d_Fees}("");
          require(success, "BettingCampaign: Payout to the winner of the campaign failed!");
 
-    }
+         emit Withdraw(devAddress,_d_Fees);
+
+}
+
 
 
     function updateEntryFee(uint256 NEW_ENTRY_FEE) external onlyOwner {

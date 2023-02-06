@@ -431,7 +431,7 @@ describe("BettingCampaign: Test various bet acceptance criteria", function () {
 
 describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Payouts to platform and campaign winner", function () {
   async function deployFixture() {
-    [owner, addr1, addr2, addr3, addr4] = await ethers.getSigners();
+    [owner, addr1, addr2, addr3, addr4, dev] = await ethers.getSigners();
     const BettingCampaign = await ethers.getContractFactory("BettingCampaign");
     const bettingCampaign = await BettingCampaign.deploy();
     await bettingCampaign.deployed();
@@ -443,6 +443,10 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
     )
       .to.emit(bettingCampaign, "CampaignCreated")
       .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+    await expect(bettingCampaign.connect(owner).setDevAddresses(dev.address))
+      .to.emit(bettingCampaign, "DevAddressUpdated")
+      .withArgs(dev.address);
 
     await expect(
       bettingCampaign
@@ -486,7 +490,7 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
       .withArgs(motoGP_ID, addr4.address, parseEther("30"));
     // console.log("Max bet:", addr2.address);
 
-    return { owner, addr1, addr2, bettingCampaign };
+    return { owner, addr1, addr2, dev, bettingCampaign };
   }
 
   it("Only owner can declare RaceWinner after the campaign has closed", async function () {
@@ -505,7 +509,7 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
   });
 
   it("Owner closes the campaign, sets race winner number and pays out the bet winner", async function () {
-    const { owner, addr1, addr2, bettingCampaign } = await loadFixture(
+    const { owner, addr1, addr2, dev, bettingCampaign } = await loadFixture(
       deployFixture
     );
     await expect(
@@ -517,6 +521,15 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
     )
       .to.emit(bettingCampaign, "CampaignStageChanged")
       .withArgs(motoGP_ID, Closed);
+
+    const initialWinnerBal = await addr2.getBalance();
+    const initialDevBal = await dev.getBalance();
+
+    await expect(
+      bettingCampaign.connect(addr2).WithdrawWinnings(parseEther("128.25"))
+    ).to.be.revertedWith(
+      "BettingCampaign: Campaign isn't yet in the payout stage!"
+    );
 
     await expect(
       bettingCampaign.connect(owner).OnwerSetsRaceWinner(motoGP_ID, 46)
@@ -533,7 +546,6 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
       campaignBal,
       campaignWinner,
       winnerPayout,
-      devFees,
     ] = await bettingCampaign.getCampaignInfo(motoGP_ID);
     await expect(raceStage).to.be.equal(Payout);
 
@@ -541,8 +553,35 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
 
     await expect(campaignBal).to.be.equal(parseEther("135"));
     await expect(winnerPayout).to.be.equal(parseEther("128.25"));
-    await expect(devFees).to.be.equal(parseEther("6.75"));
 
     await expect(campaignWinner).to.be.equal(addr2.address);
+
+    await expect(await bettingCampaign.devFees()).to.be.equal(
+      parseEther("6.75")
+    );
+
+    await expect(
+      bettingCampaign.connect(addr1).DevWithdraw()
+    ).to.be.revertedWith(
+      "Betting Campaign: You're not the developer of this contract!"
+    );
+
+    await expect(
+      bettingCampaign.connect(addr1).WithdrawWinnings(motoGP_ID)
+    ).to.be.revertedWith("BettingContract: You didn't win this campaign!");
+
+    await expect(bettingCampaign.connect(dev).DevWithdraw())
+      .to.be.emit(bettingCampaign, "Withdraw")
+      .withArgs(dev.address, parseEther("6.75"));
+
+    await expect(bettingCampaign.connect(addr2).WithdrawWinnings(motoGP_ID))
+      .to.be.emit(bettingCampaign, "Withdraw")
+      .withArgs(addr2.address, parseEther("128.25"));
+
+    const finalWinnerBal = await addr2.getBalance();
+    const finalDevBal = await dev.getBalance();
+
+    expect(finalDevBal).to.be.gt(initialDevBal);
+    expect(finalWinnerBal).to.be.gt(initialWinnerBal);
   });
 });
