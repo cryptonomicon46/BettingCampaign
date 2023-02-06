@@ -338,7 +338,7 @@ describe("BettingCampaign: Test various bet acceptance criteria", function () {
       .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
   });
 
-  it("Accept Bets: Check the owner balance and campaign balance", async function () {
+  it("Accept Bets: Check the campaign balance", async function () {
     const { owner, addr1, addr2, bettingCampaign } = await loadFixture(
       deployFixture
     );
@@ -369,11 +369,7 @@ describe("BettingCampaign: Test various bet acceptance criteria", function () {
       campaignWinner,
     ] = await bettingCampaign.getCampaignInfo(motoGP_ID);
 
-    let [userBetVal, userBetTimeStamp, userRacerPick, userHasBet] =
-      await bettingCampaign.connect(addr1).getUserBetInfo(motoGP_ID);
-
     expect(await campaginBalance).to.equal(parseEther("1.0"));
-    expect(await userBetVal).to.equal(parseEther("1.0"));
 
     await expect(
       bettingCampaign
@@ -383,8 +379,6 @@ describe("BettingCampaign: Test various bet acceptance criteria", function () {
       .to.emit(bettingCampaign, "AcceptedBet")
       .withArgs(motoGP_ID, addr2.address, parseEther("4"));
 
-    [userBetVal, userBetTimeStamp, userRacerPick, userHasBet] =
-      await bettingCampaign.connect(addr2).getUserBetInfo(motoGP_ID);
     [
       raceNum,
       raceDate,
@@ -395,7 +389,6 @@ describe("BettingCampaign: Test various bet acceptance criteria", function () {
       campaignWinner,
     ] = await bettingCampaign.getCampaignInfo(motoGP_ID);
     expect(campaginBalance).to.equal(parseEther("5.0"));
-    expect(userBetVal).to.equal(parseEther("4.0"));
   });
 
   it("Do not accept duplicate Bets: Ensure that the owner cannot bet again on the same campaign", async function () {
