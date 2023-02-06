@@ -67,26 +67,30 @@ contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
     uint256 private _totalCampaigns=1;
     uint256 public ENTRY_FEE = 1 ether;
     mapping(uint256 => CampaignDetails) private campaign_info;
-
-    mapping (address=> uint256) private _userBalance;
-    mapping (uint256=> uint256) private _campaginBalance;
+    mapping (address=> uint256) public userBalance;
+    mapping (uint256=> uint256) public campaginBalance;
     mapping(uint256 => address) public campaignWinner;
 
 
 
 /**
- * event CampaignCreated emitted when a new campaign is created by the owner 
+ *  event CampaignCreated is emitted when a new campaign is created by the owner 
  */
     event CampaignCreated( PremierLeague indexed , uint256 indexed raceNum, uint256 indexed raceDate);
 
 /**
- * event EntryFeeUpdated emitted when the entry fee is updated by the owner 
+ *  event EntryFeeUpdated is emitted when the entry fee is updated by the owner 
  */
     event EntryFeeUpdated(uint256 indexed NEW_ENTRY_FEE);
 
+/**
+ * event AcceptedBet is emitted when the campaign accepts the user's bet
+ */
+
+    event AcceptedBet(uint256 indexed _campaignId,address indexed _msgSender);
 
 /**
- * RaceWinner emitted when the owner of this contract sets the winner of the race after the race has ended 
+ * event RaceWinner emitted when the owner of this contract sets the winner of the race after the race has ended 
  */
 event RaceWinner(uint256 indexed _campaignId, uint256 racerWhoWon);
     constructor () {
@@ -143,8 +147,9 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
     }
 
 /**
- * @dev AcceptBets is the user interface to accept bets for a campaign
+ * @notice AcceptBets is the user interface to accept bets for a campaign
  * @param _campaignId is the campaignID created by the owner for a particular race either in MotoGP/Moto2 or WSBK.
+ * @dev emits the AcceptedBet event once the bet for the campaign is accepted
  */
 
  function AcceptBets(uint256 _campaignId) external payable virtual override  {
@@ -152,12 +157,13 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
         "BettingCampaign: Currently not accepting bets for this campaign!");
         
         require(_campaignId!=0 && _campaignId<= _totalCampaigns,"BettingCampaign: Invalid campaign ID number");
-        require(msg.value== ENTRY_FEE, "BettingCampaign: Entry fee is 1 ether!");
+        require(msg.value== ENTRY_FEE, "BettingCampaign: Entry fee criteria criteria not met!");
         require(block.timestamp < campaign_info[_campaignId].raceDate- 4 days,
         "BettingCampain: Bets accepted only under the Wednesday of the raceweek!");
 
-        // _userBalance[_msgSender()] = _userBalance[_msgSender()].add(msg.value);
-        _campaginBalance[_campaignId] = _campaginBalance[_campaignId].add(msg.value);
+        userBalance[_msgSender()] = userBalance[_msgSender()].add(msg.value);
+        campaginBalance[_campaignId] = campaginBalance[_campaignId].add(msg.value);
+        emit AcceptedBet(_campaignId,_msgSender());
 
 
  }
@@ -182,8 +188,8 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
 
     function WithdrawWinnings(uint256 _campaignId) external payable virtual override nonReentrant {
 
-        uint256 c_Bal =  _campaginBalance[_campaignId];
-         _campaginBalance[_campaignId] = 0;
+        uint256 c_Bal =  campaginBalance[_campaignId];
+         campaginBalance[_campaignId] = 0;
          (bool success, ) = payable(campaignWinner[_campaignId]).call{value: c_Bal}("");
          require(success, "BettingCampaign: Payout to the winner of the campaign failed!");
 
