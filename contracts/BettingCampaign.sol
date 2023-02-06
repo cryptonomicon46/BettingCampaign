@@ -17,7 +17,7 @@ interface ICampaign {
     /**
      * @dev enum defines the stage of any given league, Accepting Bets/Closed/RevealWinner
      */
-    enum Stages {ZERO, AcceptingBets, Closed, RevealWinner,Payout}
+    enum Stages {ZERO, AcceptingBets, Closed, RevealWinner,Payout, Issue}
 
 
     /**
@@ -37,7 +37,8 @@ interface ICampaign {
         uint userBetVal;
         uint userBetTimeStamp;
         uint userRacerPick;
-        bool userHasBet;
+        address userAddress;
+  
     }
 
     /**
@@ -60,12 +61,7 @@ interface ICampaign {
      */
     function getCampaignInfo(uint256 _campaignId) external returns (CampaignDetails memory);
 
-    /**
-     * @notice getUserBetInfo Gets the user's bet info for a specified campaign id  
-     * @param _campaignId the ID of the campaign 
-     * @return Bidder Info 
-     */
-     function getUserBetInfo(uint256 _campaignId) external returns (Bidder memory);
+
     /**
      * @notice AcceptBets is the user interface to accept bets for a campaign
      * @param _campaignId is the campaignID created by the owner for a particular race either in MotoGP/Moto2 or WSBK.
@@ -94,11 +90,21 @@ contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
     using SafeMath for uint256;
     uint256 private _totalCampaigns=1;
     uint256 public ENTRY_FEE = 0.5 ether;
+    uint256 private _platformFees = 5;   //5%
+    address payable public devAddress; //payable?
+
+
     mapping(uint256 => CampaignDetails) public campaign_info;
 
     //  mapping (uint256=> uint256) public campaginBalance;
     // mapping(uint256 => address) public campaignWinner;
-    mapping(uint256 =>mapping(address=>Bidder))public bidders;
+
+    mapping(uint256 =>mapping(address=>bool))public hasBet;
+
+     Bidder[] private bidder;
+    mapping(uint256 => mapping(uint256 => Bidder[]))public bidders; //Per racer Number
+
+    mapping(address => mapping(uint256 => Bidder)) public userInfo; //UserInfo per campaign
 
 
 /**
@@ -121,6 +127,12 @@ contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
  * event RaceWinner emitted when the owner of this contract sets the winner and computes the winning bet
  */
 event RaceWinner(uint256 indexed _campaignId, address indexed  winningBetAddr, uint256 indexed winnerProceeds);
+    
+    
+    /**
+     * Developer address set by the owner of this contract
+     */
+    event  DevAddressUpdated(address devAddress_);
 
 
 /**
@@ -162,17 +174,7 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
     }
 
 
-    /**
-     * @notice getUserBetInfo Gets the user's bet info for a specified campaign id  
-     * @param _campaignId the ID of the campaign 
-     * @return Bidder Info 
-     */
-    function getUserBetInfo(uint256 _campaignId) external view virtual override returns (Bidder memory){
-        require(_campaignId!=0 && _campaignId<= _totalCampaigns,"BettingCampaign: Invalid campaign ID number");
-        // console.log("Stage:", campaign_info[_campaignId].stage);
-        return  bidders[_campaignId][_msgSender()];
 
-    }
 
     /**
      * @dev _setStage is an internal function that returns the currents 
@@ -221,17 +223,19 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
         require(msg.value>= ENTRY_FEE, "BettingCampaign: Entry fee criteria criteria not met!");
         require(block.timestamp < campaign_info[_campaignId].raceDate- 4 days,
         "BettingCampain: Bets accepted only under the Wednesday of the raceweek!");
-        require(!bidders[_campaignId][_msgSender()].userHasBet,"BettingCampaign: You cannot bet on the same campaign again!");
+        require(!hasBet[_campaignId][_msgSender()],"BettingCampaign: You cannot bet on the same campaign again!");
     
 
-        bidders[_campaignId][_msgSender()] = Bidder({
+        bidders[_campaignId][Racer].push (Bidder({
                                         userBetVal: msg.value,
                                         userBetTimeStamp:block.timestamp,
                                         userRacerPick: Racer,
-                                        userHasBet:true});
+                                        userAddress: _msgSender()
+                                        }));
+        hasBet[_campaignId][_msgSender()] = true;
+        
 
         campaign_info[_campaignId].campaignBal = campaign_info[_campaignId].campaignBal.add(msg.value);
-        // campaginBalance[_campaignId] = campaginBalance[_campaignId].add(msg.value);
         
         emit AcceptedBet(_campaignId,_msgSender(), msg.value);
 
@@ -247,18 +251,20 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
  */
 
     function OnwerSetsRaceWinner(uint256 _campaignId,uint256 racerWhoWon) external onlyOwner virtual override returns (bool){
-        require(_stageConfirmation(_campaignId,Stages.Closed),
-        "BettingCampaign: This campaign hasn't yet closed!");
+        require(campaign_info[_campaignId].stage==Stages.Closed, "BettingCampaign: This campaign hasn't yet closed!");
         address _cWinner;
         uint256 _proceeds;
         campaign_info[_campaignId].raceWinner = racerWhoWon;
 
-        campaign_info[_campaignId].stage == Stages.RevealWinner;
+        campaign_info[_campaignId].stage = Stages.RevealWinner;
 
-        (_cWinner, _proceeds) = _findTheCampaignWinner(_campaignId);
-        campaign_info[_campaignId].stage == Stages.Payout;
+        if(_findTheCampaignWinner(_campaignId,racerWhoWon)) {
+            campaign_info[_campaignId].stage = Stages.Payout;}
+        else {
+            campaign_info[_campaignId].stage = Stages.Issue;
 
-        emit RaceWinner(_campaignId,_cWinner,_proceeds);
+        }
+        emit RaceWinner(_campaignId,campaign_info[_campaignId].campaignWinner,campaign_info[_campaignId].campaignBal);
         return true;
         
     }
@@ -267,24 +273,63 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
  * @notice findTheCampaignWinner is an internal function which will compute the winner for the specified betting campaign 
  * @dev winners are determined by the bettinng amount/campaign, and if the bet amounts are the same, then by the timestamp
  */
-    function _findTheCampaignWinner(uint256 _campaignId) private returns (address,uint256) {
-      require(_stageConfirmation(_campaignId,Stages.RevealWinner),
-        "BettingCampaign: Racewinner hasn't yet been set for this campaign");
-        
-        //Conditions,Sorted by the amount of money bet, and if equal, then use the timestamp to determine the winner
+    function _findTheCampaignWinner(uint256 _campaignId,uint256 racerWhoWon) private returns (bool) {
+      require(campaign_info[_campaignId].stage==Stages.RevealWinner,
+        "BettingCampaign: Race winner hasn't yet been set for this campaign");
+        address _campaignWinner;
+        uint256 _winningBet;
+        uint256 _timeStamp;
 
-        return(campaign_info[_campaignId].campaignWinner, campaign_info[_campaignId].campaignBal);
+        //Conditions,Sorted by the amount of money bet, and if equal, then use the timestamp to determine the winner
+        Bidder[] memory WinnersArray= bidders[_campaignId][racerWhoWon];
+
+                _winningBet = WinnersArray[0].userBetVal;
+                _campaignWinner = WinnersArray[0].userAddress;
+                _timeStamp = WinnersArray[0].userBetTimeStamp;
+
+                // console.log("Number of ppl who bet on the Race winner:", WinnersArray.length);
+                // console.log(_winningBet,_campaignWinner,_timeStamp, campaign_info[_campaignId].campaignBal);
+
+            for (uint256 i=1; i< WinnersArray.length; i++) {
+                // console.log(WinnersArray[i].userBetVal,
+                // WinnersArray[i].userAddress, WinnersArray[i].userBetTimeStamp, campaign_info[_campaignId].campaignBal);
+
+                if(WinnersArray[i].userBetVal> _winningBet) {
+                _winningBet = WinnersArray[i].userBetVal;
+                _campaignWinner = WinnersArray[i].userAddress;
+                _timeStamp = WinnersArray[i].userBetTimeStamp;
+
+
+                }
+                else if(WinnersArray[i].userBetVal == _winningBet && WinnersArray[i].userBetTimeStamp< _timeStamp ) {
+               _winningBet = WinnersArray[i].userBetVal;
+                _campaignWinner = WinnersArray[i].userAddress;
+                _timeStamp = WinnersArray[i].userBetTimeStamp;
+                }
+            }
+
+            // campaign_info[_campaignId].campaignWinner = _campaignWinner;
+        // console.log("\nWinningBet\n");
+        // console.log(_winningBet,_campaignWinner,_timeStamp, campaign_info[_campaignId].campaignBal);
+         campaign_info[_campaignId].campaignWinner= _campaignWinner;
+         return true;
+    
 
     }
 
-
+/**
+ * @notice WithdrawWinnings uses the Checks/Effects/Interactions pattern with 
+ * Reentrancy guard to allow the bet winner to withdraw the campaign funds
+ *  @param _campaignId is the campaignID created for a certain race of MotoGP/Moto2 or WSBK.
+ */
     function WithdrawWinnings(uint256 _campaignId) external payable virtual override nonReentrant {
       require(_stageConfirmation(_campaignId,Stages.Payout),
         "BettingCampaign: Campaign isn't yet in the payout stage!");
         uint256 c_Bal =  campaign_info[_campaignId].campaignBal;
          campaign_info[_campaignId].campaignBal = 0;
          require(campaign_info[_campaignId].campaignWinner!= address(0),"BettingContract: Invalid payout address");
-         (bool success, ) = payable(campaign_info[_campaignId].campaignWinner).call{value: c_Bal}("");
+        
+        (bool success, ) = payable(campaign_info[_campaignId].campaignWinner).call{value: c_Bal}("");
          require(success, "BettingCampaign: Payout to the winner of the campaign failed!");
 
     }
@@ -293,6 +338,16 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
     function updateEntryFee(uint256 NEW_ENTRY_FEE) external onlyOwner {
         ENTRY_FEE = NEW_ENTRY_FEE;
         emit EntryFeeUpdated(NEW_ENTRY_FEE); 
+    }
+
+
+
+function setDevAddresses(address payable devAddress_)
+    public 
+    onlyOwner  
+    {
+        devAddress = devAddress_;
+        emit DevAddressUpdated(devAddress);
     }
 
 }

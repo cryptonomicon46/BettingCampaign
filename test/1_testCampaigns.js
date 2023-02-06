@@ -88,6 +88,14 @@ describe("BettingCampaign: Basic tests", function () {
       bettingCampaign.connect(addr1).updateEntryFee(parseEther("0.5"))
     ).to.be.revertedWith("Ownable: caller is not the owner");
   });
+  it("Only owner can update the developer address", async function () {
+    const { owner, addr1, bettingCampaign } = await loadFixture(deployFixture);
+
+    await expect(bettingCampaign.connect(owner).setDevAddresses(addr1.address))
+      .to.emit(bettingCampaign, "DevAddressUpdated")
+      .withArgs(addr1.address);
+  });
+
   it("Only owner can change the campaign stage", async function () {
     const { owner, addr1, bettingCampaign } = await loadFixture(deployFixture);
 
@@ -421,13 +429,116 @@ describe("BettingCampaign: Test various bet acceptance criteria", function () {
   });
 });
 
-describe("BettingCampaign: Owner sets RaceWinner, Payouts to platform and campaign winner", function () {
+describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Payouts to platform and campaign winner", function () {
   async function deployFixture() {
-    [owner, addr1, addr2] = await ethers.getSigners();
+    [owner, addr1, addr2, addr3, addr4] = await ethers.getSigners();
     const BettingCampaign = await ethers.getContractFactory("BettingCampaign");
     const bettingCampaign = await BettingCampaign.deploy();
     await bettingCampaign.deployed();
 
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+    )
+      .to.emit(bettingCampaign, "CampaignCreated")
+      .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+    await expect(
+      bettingCampaign
+        .connect(addr1)
+        .AcceptBets(motoGP_ID, 46, { value: parseEther("10") })
+    )
+      .to.emit(bettingCampaign, "AcceptedBet")
+      .withArgs(motoGP_ID, addr1.address, parseEther("10"));
+
+    await expect(
+      bettingCampaign
+        .connect(addr2)
+        .AcceptBets(motoGP_ID, 46, { value: parseEther("30") })
+    )
+      .to.emit(bettingCampaign, "AcceptedBet")
+      .withArgs(motoGP_ID, addr2.address, parseEther("30"));
+    // console.log("Max bet:", addr2.address);
+
+    await expect(
+      bettingCampaign
+        .connect(addr3)
+        .AcceptBets(motoGP_ID, 46, { value: parseEther("15") })
+    )
+      .to.emit(bettingCampaign, "AcceptedBet")
+      .withArgs(motoGP_ID, addr3.address, parseEther("15"));
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .AcceptBets(motoGP_ID, 5, { value: parseEther("50") })
+    )
+      .to.emit(bettingCampaign, "AcceptedBet")
+      .withArgs(motoGP_ID, owner.address, parseEther("50"));
+
+    await expect(
+      bettingCampaign
+        .connect(addr4)
+        .AcceptBets(motoGP_ID, 46, { value: parseEther("30") })
+    )
+      .to.emit(bettingCampaign, "AcceptedBet")
+      .withArgs(motoGP_ID, addr4.address, parseEther("30"));
+    // console.log("Max bet:", addr2.address);
+
     return { owner, addr1, addr2, bettingCampaign };
   }
+
+  it("Only owner can declare RaceWinner after the campaign has closed", async function () {
+    const { owner, addr1, addr2, bettingCampaign } = await loadFixture(
+      deployFixture
+    );
+    await expect(
+      bettingCampaign.connect(owner).OnwerSetsRaceWinner(motoGP_ID, 46)
+    ).to.be.revertedWith("BettingCampaign: This campaign hasn't yet closed!");
+
+    await expect(
+      bettingCampaign.connect(owner).changeCampaignStage(motoGP_ID, Closed)
+    )
+      .to.emit(bettingCampaign, "CampaignStageChanged")
+      .withArgs(motoGP_ID, Closed);
+  });
+
+  it("Owner closes the campaign, sets race winner number and pays out the bet winner", async function () {
+    const { owner, addr1, addr2, bettingCampaign } = await loadFixture(
+      deployFixture
+    );
+    await expect(
+      bettingCampaign.connect(owner).OnwerSetsRaceWinner(motoGP_ID, 46)
+    ).to.be.revertedWith("BettingCampaign: This campaign hasn't yet closed!");
+
+    await expect(
+      bettingCampaign.connect(owner).changeCampaignStage(motoGP_ID, Closed)
+    )
+      .to.emit(bettingCampaign, "CampaignStageChanged")
+      .withArgs(motoGP_ID, Closed);
+
+    await expect(
+      bettingCampaign.connect(owner).OnwerSetsRaceWinner(motoGP_ID, 46)
+    )
+      .to.emit(bettingCampaign, "RaceWinner")
+      .withArgs(motoGP_ID, addr2.address, parseEther("135"));
+
+    [
+      raceNum,
+      raceDate,
+      raceStage,
+      raceLeague,
+      raceWinner,
+      campaignBal,
+      campaignWinner,
+    ] = await bettingCampaign.getCampaignInfo(motoGP_ID);
+    await expect(raceStage).to.be.equal(Payout);
+
+    await expect(raceWinner).to.be.equal(BigNumber.from("46"));
+
+    await expect(campaignBal).to.be.equal(parseEther("135"));
+
+    await expect(campaignWinner).to.be.equal(addr2.address);
+  });
 });
