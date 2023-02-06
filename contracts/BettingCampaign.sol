@@ -4,88 +4,9 @@ pragma abicoder v2;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "hardhat/console.sol";
-interface ICampaign {
-
-    /**
-     * @dev enum that selects the Motorcyle race premier league class of the campaign
-     */
-    enum PremierLeague {ZERO,MotoGp, Moto2, WSBK}
-
-    /**
-     * @dev enum defines the stage of any given league, Accepting Bets/Closed/RevealWinner
-     */
-    enum Stages {ZERO, AcceptingBets, Closed, RevealWinner,Payout, Issue}
-
-
-    /**
-     * 
-     */
-    struct CampaignDetails { 
-        uint256 raceNum;
-        uint256 raceDate;
-        Stages stage;
-        PremierLeague league;
-        uint256 raceWinner;
-        uint256 campaignBal;
-        address campaignWinner;
-        uint256 winnerPayout;
-    }
-
-        struct Bidder {
-        uint userBetVal;
-        uint userBetTimeStamp;
-        uint userRacerPick;
-        address userAddress;
-  
-    }
-
-    /**
-     * @notice createCampaign only Owner of this contract can launch a  MotoGp=1/Moto2=2/WSBK=3 Betting campaign
-     * @param league selects the league of motorcycle racing, which could be MotoGp=1/Moto2=2/WSBK=3 
-     * @param raceNum is the race round for the selected Premier League 
-     * @param raceDate is the race Date 
-     * @return bool true if the campaign is created 
-     * 
-     */
-
-    function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate) external returns (bool);
-
-
-
-    /**
-     * @notice getCampaignInfo Gets the campaign info for a specified campaign id  
-     * @param _campaignId the ID of the campaign 
-     * @return CampaignDetails returns the campaign details struct that has the raceNum, raceDate and campaign Stage (acceptingBets, Stopped, RevealWinner)
-     */
-    function getCampaignInfo(uint256 _campaignId) external returns (CampaignDetails memory);
-
-
-    /**
-     * @notice AcceptBets is the user interface to accept bets for a campaign
-     * @param _campaignId is the campaignID created by the owner for a particular race either in MotoGP/Moto2 or WSBK.
-     * @param Racer the racer to be bet on
-     *  @dev emits the AcceptedBet event once the bet for the campaign is accepted
-     */
-
-    function AcceptBets(uint256 _campaignId,uint256 Racer) external payable;
-
-
-    /**
-     * @dev OnwerSetsRaceWinner is called by the owner of the contract to set the racer who won a certain campaign 
-     * @param _campaignId is the campaignID created for a certain race of MotoGP/Moto2 or WSBK.
-     * @param racerWhoWon is the racer who won the race on Sunda for the leage
-     * @return bool returns true if the operation succeeds.
-     */
-    function OnwerSetsRaceWinner(uint256 _campaignId,uint256 racerWhoWon) external returns (bool) ;
-
-
-     function WithdrawWinnings(uint256 _campaignId) external payable;
-
-
-}
+import "./ICampaign.sol";
 
 contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
     using SafeMath for uint256;
@@ -94,58 +15,25 @@ contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
     uint256 private _platformFees = 5;   //5%
     address payable public devAddress; //payable?
     uint256 public devFees;
+    Bidder[] private bidder;
 
+    /**
+     * Campain info to CampaignDetails struct {raceNum,raceDate,stage,league,raceWinner,campaignBal,campaignWinner,winnerPayout}
+     */
+    mapping(uint256 => CampaignDetails) public campaign_info; 
 
-    mapping(uint256 => CampaignDetails) public campaign_info;
-
-    //  mapping (uint256=> uint256) public campaginBalance;
-    // mapping(uint256 => address) public campaignWinner;
-
+    /**
+     * Mapping to check if an account has already bet in a certain campaign (true/false)
+     */
     mapping(uint256 =>mapping(address=>bool))public hasBet;
 
-     Bidder[] private bidder;
+    /**
+     * Mapping to capture the Bidder info per campaign per racerNumber to a struck {userBetVal, userBetTimeStamp, userRacerPick, userAddress}
+     */
+
     mapping(uint256 => mapping(uint256 => Bidder[]))public bidders; //Per racer Number
 
-    mapping(address => mapping(uint256 => Bidder)) public userInfo; //UserInfo per campaign
 
-
-/**
- *  event CampaignCreated is emitted when a new campaign is created by the owner 
- */
-    event CampaignCreated( PremierLeague indexed , uint256 indexed raceNum, uint256 indexed raceDate);
-
-/**
- *  event EntryFeeUpdated is emitted when the entry fee is updated by the owner 
- */
-    event EntryFeeUpdated(uint256 indexed NEW_ENTRY_FEE);
-
-/**
- * event AcceptedBet is emitted when the campaign accepts the user's bet
- */
-
-    event AcceptedBet(uint256 indexed _campaignId,address indexed _msgSender, uint256 indexed betAmount);
-
-    /**
-     * event RaceWinner emitted when the owner of this contract sets the winner and computes the winning bet
-     */
-    event RaceWinner(uint256 indexed _campaignId, address indexed  winningBetAddr, uint256 indexed winnerProceeds);
-        
-    
-    /**
-     * Developer address set by the owner of this contract
-     */
-    event  DevAddressUpdated(address devAddress_);
-
-
-    /**
-     * event Withdraw emitted when either the winner or the dev withdraw their balances
-     */
-    event Withdraw(address account,uint256  amount);
-
-    /**
-     * event CampaignStageChanged emitted when the campaign stage is changed by the owner of the contract
-     */
-    event CampaignStageChanged(uint256 _campaignId, Stages _stage);
     constructor () {
 
     }
@@ -339,8 +227,12 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
         emit Withdraw(c_WinnerAddr,c_WinnerBal);
     }
 
+    /**
+     * @notice DevWithdraw allows only the developer to withdraw their 5% fees on all closed campains where the winner's revealed
+     * emits the Withdraw event
+     */
 
-function DevWithdraw() external payable nonReentrant { 
+    function DevWithdraw() external virtual override payable nonReentrant { 
     require( devAddress != address(0),"Betting Campaign: Owner hasn't set the developer address!");
     require(_msgSender() == devAddress,"Betting Campaign: You're not the developer of this contract!");
 
@@ -354,16 +246,24 @@ function DevWithdraw() external payable nonReentrant {
 }
 
 
+    /**
+     * @notice updateEntryFee only owner can update the entry fee for the campaigns
+     * @param  NEW_ENTRY_FEE is the new entry fee
+     * @dev emits the EntryFeeUpdated event 
+     */
+    function updateEntryFee(uint256 NEW_ENTRY_FEE) external virtual override onlyOwner {
+            ENTRY_FEE = NEW_ENTRY_FEE;
+            emit EntryFeeUpdated(NEW_ENTRY_FEE); 
+        }
 
-    function updateEntryFee(uint256 NEW_ENTRY_FEE) external onlyOwner {
-        ENTRY_FEE = NEW_ENTRY_FEE;
-        emit EntryFeeUpdated(NEW_ENTRY_FEE); 
-    }
 
-
-
-function setDevAddresses(address payable devAddress_)
-    public 
+    /**
+     * @notice setDevAddresses allows the owner of the contract to set the developer address.
+     * Devs earn 5% of the campaign proceeds
+     * emits the DevAddressUpdated event 
+     */
+    function setDevAddresses(address payable devAddress_)
+    external virtual override  
     onlyOwner  
     {
         devAddress = devAddress_;
