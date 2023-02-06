@@ -1,17 +1,13 @@
-# BettingCampaign
-Betting campaign for sports 
+# Sample Hardhat Project
 
-Betting Pool to predict race winner for each race round
-Post launch support bet to mint for the following racing categories
-These mints must happen 12 midnight on racedays
-Betting must close wednesday 12 midnight on race weeks
-Conflict resolution on Bets are done by the following in order of precedence
+This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a script that deploys that contract.
 
-Bet amount
-Bet time ( If the bet amounts are same for two users, whoever was first wins)
-Winner gets all the amount
-5% platform fees
+Try running some of the following tasks:
 
-MotoGP
-Moto2
-WSBK
+```shell
+npx hardhat help
+npx hardhat test
+REPORT_GAS=true npx hardhat test
+npx hardhat node
+npx hardhat run scripts/deploy.js
+```
