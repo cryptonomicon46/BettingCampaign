@@ -522,7 +522,7 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
       bettingCampaign.connect(owner).OnwerSetsRaceWinner(motoGP_ID, 46)
     )
       .to.emit(bettingCampaign, "RaceWinner")
-      .withArgs(motoGP_ID, addr2.address, parseEther("135"));
+      .withArgs(motoGP_ID, addr2.address, parseEther("128.25"));
 
     [
       raceNum,
@@ -532,12 +532,16 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
       raceWinner,
       campaignBal,
       campaignWinner,
+      winnerPayout,
+      devFees,
     ] = await bettingCampaign.getCampaignInfo(motoGP_ID);
     await expect(raceStage).to.be.equal(Payout);
 
     await expect(raceWinner).to.be.equal(BigNumber.from("46"));
 
     await expect(campaignBal).to.be.equal(parseEther("135"));
+    await expect(winnerPayout).to.be.equal(parseEther("128.25"));
+    await expect(devFees).to.be.equal(parseEther("6.75"));
 
     await expect(campaignWinner).to.be.equal(addr2.address);
   });

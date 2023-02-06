@@ -31,6 +31,8 @@ interface ICampaign {
         uint256 raceWinner;
         uint256 campaignBal;
         address campaignWinner;
+        uint256 winnerPayout;
+        uint256 devFees;
     }
 
         struct Bidder {
@@ -152,7 +154,7 @@ event CampaignStageChanged(uint256 _campaignId, Stages _stage);
      */
 function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate) external virtual override onlyOwner returns (bool) {
     // require(league >0 && league<=3,"BettingCampaign: Invalid league ID MotoGp=1/Moto2=2/WSBK=3");
-    campaign_info[_totalCampaigns]= CampaignDetails(raceNum,raceDate,Stages.AcceptingBets, league,0,0,address(0));
+    campaign_info[_totalCampaigns]= CampaignDetails(raceNum,raceDate,Stages.AcceptingBets, league,0,0,address(0),0,0);
     // console.log( campaign_info[_totalCampaigns].stage);
     Stages test = campaign_info[_totalCampaigns].stage;
     _totalCampaigns = _totalCampaigns.add(1);
@@ -252,8 +254,7 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
 
     function OnwerSetsRaceWinner(uint256 _campaignId,uint256 racerWhoWon) external onlyOwner virtual override returns (bool){
         require(campaign_info[_campaignId].stage==Stages.Closed, "BettingCampaign: This campaign hasn't yet closed!");
-        address _cWinner;
-        uint256 _proceeds;
+
         campaign_info[_campaignId].raceWinner = racerWhoWon;
 
         campaign_info[_campaignId].stage = Stages.RevealWinner;
@@ -264,7 +265,7 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
             campaign_info[_campaignId].stage = Stages.Issue;
 
         }
-        emit RaceWinner(_campaignId,campaign_info[_campaignId].campaignWinner,campaign_info[_campaignId].campaignBal);
+        emit RaceWinner(_campaignId,campaign_info[_campaignId].campaignWinner,campaign_info[_campaignId].winnerPayout);
         return true;
         
     }
@@ -312,6 +313,9 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
         // console.log("\nWinningBet\n");
         // console.log(_winningBet,_campaignWinner,_timeStamp, campaign_info[_campaignId].campaignBal);
          campaign_info[_campaignId].campaignWinner= _campaignWinner;
+
+        campaign_info[_campaignId].devFees = (campaign_info[_campaignId].campaignBal).mul(_platformFees).div(100);
+        campaign_info[_campaignId].winnerPayout = (campaign_info[_campaignId].campaignBal).sub(campaign_info[_campaignId].devFees);
          return true;
     
 
