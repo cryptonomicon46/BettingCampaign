@@ -187,6 +187,46 @@ describe("BettingCampaign: Launch campaigns", function () {
     expect(raceStage).to.be.equal(BigNumber.from(AcceptingBets));
     expect(raceLeague).to.be.equal(BigNumber.from(wsbk_ID));
   });
+
+  it("Launch MotoGp Campaign and change stage: Only owner can change the stage of the campaign ", async function () {
+    const { owner, addr1, bettingCampaign } = await loadFixture(deployFixture);
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+    )
+      .to.emit(bettingCampaign, "CampaignCreated")
+      .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+    await expect(
+      bettingCampaign
+        .connect(addr1)
+        .changeCampaignStage(motoGP_ID, RevealWinner)
+    ).to.be.revertedWith("Ownable: caller is not the owner");
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .changeCampaignStage(motoGP_ID, RevealWinner)
+    )
+      .to.be.emit(bettingCampaign, "CampaignStageChanged")
+      .withArgs(motoGP_ID, RevealWinner);
+
+    await expect(
+      bettingCampaign.connect(owner).changeCampaignStage(motoGP_ID, Closed)
+    )
+      .to.be.emit(bettingCampaign, "CampaignStageChanged")
+      .withArgs(motoGP_ID, Closed);
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .changeCampaignStage(motoGP_ID, AcceptingBets)
+    )
+      .to.be.emit(bettingCampaign, "CampaignStageChanged")
+      .withArgs(motoGP_ID, AcceptingBets);
+  });
 });
 
 describe("BettingCampaign: Accept bets", function () {

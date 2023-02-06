@@ -93,6 +93,12 @@ contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
  * event RaceWinner emitted when the owner of this contract sets the winner of the race after the race has ended 
  */
 event RaceWinner(uint256 indexed _campaignId, uint256 racerWhoWon);
+
+
+/**
+ * event CampaignStageChanged emitted when the campaign stage is changed by the owner of the contract
+ */
+event CampaignStageChanged(uint256 _campaignId, Stages _stage);
     constructor () {
 
     }
@@ -146,6 +152,19 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
 
     }
 
+
+    /**
+     * changeCampaignStage to manually change the campaign stage only by the owner of the contract 
+     * @param _campaignId the ID of the campaign 
+     * @param _stage change the campaign stage to this (AcceptingBids/Stopped/RevealWinner)
+     */
+    function changeCampaignStage(uint256 _campaignId, Stages _stage) external onlyOwner {
+        require(_campaignId!=0 && _campaignId<= _totalCampaigns,"BettingCampaign: Invalid campaign ID number");
+        campaign_info[_campaignId].stage  = _stage;
+        emit CampaignStageChanged(_campaignId, _stage);
+
+    }
+
 /**
  * @notice AcceptBets is the user interface to accept bets for a campaign
  * @param _campaignId is the campaignID created by the owner for a particular race either in MotoGP/Moto2 or WSBK.
@@ -183,6 +202,13 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
         emit RaceWinner(_campaignId,racerWhoWon);
         return true;
         
+    }
+
+    function revealWinner(uint256 _campaignId) external onlyOwner returns (address,uint256) {
+      require(_stageConfirmation(_campaignId,Stages.Closed),
+        "BettingCampaign: This campaign hasn't yet closed!");
+
+
     }
 
 
