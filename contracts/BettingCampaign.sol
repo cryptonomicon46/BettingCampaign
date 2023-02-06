@@ -17,7 +17,7 @@ interface ICampaign {
     /**
      * @dev enum defines the stage of any given league, Accepting Bets/Closed/RevealWinner
      */
-    enum Stages {ZERO, AcceptingBets, Closed, RevealWinner}
+    enum Stages {ZERO, AcceptingBets, Closed, RevealWinner,Payout}
 
 
     /**
@@ -29,7 +29,17 @@ interface ICampaign {
         Stages stage;
         PremierLeague league;
         uint256 raceWinner;
+        uint256 campaignBal;
+        address campaignWinner;
     }
+
+        struct Bidder {
+        uint userBetVal;
+        uint userBetTimeStamp;
+        uint userRacerPick;
+        bool userHasBet;
+    }
+
     /**
      * @notice createCampaign only Owner of this contract can launch a  MotoGp=1/Moto2=2/WSBK=3 Betting campaign
      * @param league selects the league of motorcycle racing, which could be MotoGp=1/Moto2=2/WSBK=3 
@@ -38,6 +48,7 @@ interface ICampaign {
      * @return bool true if the campaign is created 
      * 
      */
+
     function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate) external returns (bool);
 
 
@@ -49,28 +60,45 @@ interface ICampaign {
      */
     function getCampaignInfo(uint256 _campaignId) external returns (CampaignDetails memory);
 
+    /**
+     * @notice getUserBetInfo Gets the user's bet info for a specified campaign id  
+     * @param _campaignId the ID of the campaign 
+     * @return Bidder Info 
+     */
+     function getUserBetInfo(uint256 _campaignId) external returns (Bidder memory);
+    /**
+     * @notice AcceptBets is the user interface to accept bets for a campaign
+     * @param _campaignId is the campaignID created by the owner for a particular race either in MotoGP/Moto2 or WSBK.
+     * @param Racer the racer to be bet on
+     *  @dev emits the AcceptedBet event once the bet for the campaign is accepted
+     */
+
+    function AcceptBets(uint256 _campaignId,uint256 Racer) external payable;
+
 
     /**
-     * AcceptBets is the user interface to accept bets for a campaign
-     * @param _campaignId is the campaignID created by the owner for a particular race either in MotoGP/Moto2 or WSBK.
+     * @dev OnwerSetsRaceWinner is called by the owner of the contract to set the racer who won a certain campaign 
+     * @param _campaignId is the campaignID created for a certain race of MotoGP/Moto2 or WSBK.
+     * @param racerWhoWon is the racer who won the race on Sunda for the leage
+     * @return bool returns true if the operation succeeds.
      */
-    function AcceptBets(uint256 _campaignId) external payable;
+    function OnwerSetsRaceWinner(uint256 _campaignId,uint256 racerWhoWon) external returns (bool) ;
 
-    function RaceWinnerSet(uint256 _campaignId,uint256 racerWhoWon) external returns (bool) ;
 
      function WithdrawWinnings(uint256 _campaignId) external payable;
+
 
 }
 
 contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
     using SafeMath for uint256;
     uint256 private _totalCampaigns=1;
-    uint256 public ENTRY_FEE = 1 ether;
-    mapping(uint256 => CampaignDetails) private campaign_info;
-    mapping (address=> uint256) public userBalance;
-    mapping (uint256=> uint256) public campaginBalance;
-    mapping(uint256 => address) public campaignWinner;
+    uint256 public ENTRY_FEE = 0.5 ether;
+    mapping(uint256 => CampaignDetails) public campaign_info;
 
+    //  mapping (uint256=> uint256) public campaginBalance;
+    // mapping(uint256 => address) public campaignWinner;
+    mapping(uint256 =>mapping(address=>Bidder))public bidders;
 
 
 /**
@@ -87,12 +115,12 @@ contract BettingCampaign is Context, Ownable, ReentrancyGuard, ICampaign {
  * event AcceptedBet is emitted when the campaign accepts the user's bet
  */
 
-    event AcceptedBet(uint256 indexed _campaignId,address indexed _msgSender);
+    event AcceptedBet(uint256 indexed _campaignId,address indexed _msgSender, uint256 indexed betAmount);
 
 /**
- * event RaceWinner emitted when the owner of this contract sets the winner of the race after the race has ended 
+ * event RaceWinner emitted when the owner of this contract sets the winner and computes the winning bet
  */
-event RaceWinner(uint256 indexed _campaignId, uint256 racerWhoWon);
+event RaceWinner(uint256 indexed _campaignId, address indexed  winningBetAddr, uint256 indexed winnerProceeds);
 
 
 /**
@@ -112,8 +140,9 @@ event CampaignStageChanged(uint256 _campaignId, Stages _stage);
      */
 function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate) external virtual override onlyOwner returns (bool) {
     // require(league >0 && league<=3,"BettingCampaign: Invalid league ID MotoGp=1/Moto2=2/WSBK=3");
-    campaign_info[_totalCampaigns]= CampaignDetails(raceNum,raceDate,Stages.AcceptingBets, league,0);
-    console.log(uint(Stages.AcceptingBets));
+    campaign_info[_totalCampaigns]= CampaignDetails(raceNum,raceDate,Stages.AcceptingBets, league,0,0,address(0));
+    // console.log( campaign_info[_totalCampaigns].stage);
+    Stages test = campaign_info[_totalCampaigns].stage;
     _totalCampaigns = _totalCampaigns.add(1);
     emit CampaignCreated(league, raceNum, raceDate);
 }
@@ -128,7 +157,20 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
     function getCampaignInfo(uint256 _campaignId) external view virtual override returns (CampaignDetails memory){
         require(_campaignId!=0 && _campaignId<= _totalCampaigns,"BettingCampaign: Invalid campaign ID number");
         // console.log("Stage:", campaign_info[_campaignId].stage);
-        return campaign_info[_campaignId];
+        return  campaign_info[_campaignId];
+
+    }
+
+
+    /**
+     * @notice getUserBetInfo Gets the user's bet info for a specified campaign id  
+     * @param _campaignId the ID of the campaign 
+     * @return Bidder Info 
+     */
+    function getUserBetInfo(uint256 _campaignId) external view virtual override returns (Bidder memory){
+        require(_campaignId!=0 && _campaignId<= _totalCampaigns,"BettingCampaign: Invalid campaign ID number");
+        // console.log("Stage:", campaign_info[_campaignId].stage);
+        return  bidders[_campaignId][_msgSender()];
 
     }
 
@@ -165,58 +207,84 @@ function createCampaign(PremierLeague league, uint256 raceNum,  uint256 raceDate
 
     }
 
-/**
- * @notice AcceptBets is the user interface to accept bets for a campaign
- * @param _campaignId is the campaignID created by the owner for a particular race either in MotoGP/Moto2 or WSBK.
- * @dev emits the AcceptedBet event once the bet for the campaign is accepted
- */
+    /**
+     * @notice AcceptBets is the user interface to accept bets for a campaign
+     * @param _campaignId is the campaignID created by the owner for a particular race either in MotoGP/Moto2 or WSBK.
+     * @dev emits the AcceptedBet event once the bet for the campaign is accepted
+     */
 
- function AcceptBets(uint256 _campaignId) external payable virtual override  {
+ function AcceptBets(uint256 _campaignId,uint256 Racer) external payable virtual override  {
         require(_stageConfirmation(_campaignId,Stages.AcceptingBets),
         "BettingCampaign: Currently not accepting bets for this campaign!");
         
         require(_campaignId!=0 && _campaignId<= _totalCampaigns,"BettingCampaign: Invalid campaign ID number");
-        require(msg.value== ENTRY_FEE, "BettingCampaign: Entry fee criteria criteria not met!");
+        require(msg.value>= ENTRY_FEE, "BettingCampaign: Entry fee criteria criteria not met!");
         require(block.timestamp < campaign_info[_campaignId].raceDate- 4 days,
         "BettingCampain: Bets accepted only under the Wednesday of the raceweek!");
+        require(!bidders[_campaignId][_msgSender()].userHasBet,"BettingCampaign: You cannot bet on the same campaign again!");
+    
 
-        userBalance[_msgSender()] = userBalance[_msgSender()].add(msg.value);
-        campaginBalance[_campaignId] = campaginBalance[_campaignId].add(msg.value);
-        emit AcceptedBet(_campaignId,_msgSender());
+        bidders[_campaignId][_msgSender()] = Bidder({
+                                        userBetVal: msg.value,
+                                        userBetTimeStamp:block.timestamp,
+                                        userRacerPick: Racer,
+                                        userHasBet:true});
+
+        campaign_info[_campaignId].campaignBal = campaign_info[_campaignId].campaignBal.add(msg.value);
+        // campaginBalance[_campaignId] = campaginBalance[_campaignId].add(msg.value);
+        
+        emit AcceptedBet(_campaignId,_msgSender(), msg.value);
 
 
  }
 
 
  /**
- * @dev RaceWinnerSet is called by the owner of the contract to set the racer who won a certain campaign 
+ * @dev OnwerSetsRaceWinner is called by the owner of the contract to set the racer who won a certain campaign 
  * @param _campaignId is the campaignID created for a certain race of MotoGP/Moto2 or WSBK.
  * @param racerWhoWon is the racer who won the race on Sunda for the leage
  * @return bool returns true if the operation succeeds.
  */
 
-    function RaceWinnerSet(uint256 _campaignId,uint256 racerWhoWon) external onlyOwner virtual override returns (bool){
+    function OnwerSetsRaceWinner(uint256 _campaignId,uint256 racerWhoWon) external onlyOwner virtual override returns (bool){
         require(_stageConfirmation(_campaignId,Stages.Closed),
         "BettingCampaign: This campaign hasn't yet closed!");
+        address _cWinner;
+        uint256 _proceeds;
         campaign_info[_campaignId].raceWinner = racerWhoWon;
-        emit RaceWinner(_campaignId,racerWhoWon);
+
+        campaign_info[_campaignId].stage == Stages.RevealWinner;
+
+        (_cWinner, _proceeds) = _findTheCampaignWinner(_campaignId);
+        campaign_info[_campaignId].stage == Stages.Payout;
+
+        emit RaceWinner(_campaignId,_cWinner,_proceeds);
         return true;
         
     }
 
-    function revealWinner(uint256 _campaignId) external onlyOwner returns (address,uint256) {
-      require(_stageConfirmation(_campaignId,Stages.Closed),
-        "BettingCampaign: This campaign hasn't yet closed!");
+/**
+ * @notice findTheCampaignWinner is an internal function which will compute the winner for the specified betting campaign 
+ * @dev winners are determined by the bettinng amount/campaign, and if the bet amounts are the same, then by the timestamp
+ */
+    function _findTheCampaignWinner(uint256 _campaignId) private returns (address,uint256) {
+      require(_stageConfirmation(_campaignId,Stages.RevealWinner),
+        "BettingCampaign: Racewinner hasn't yet been set for this campaign");
+        
+        //Conditions,Sorted by the amount of money bet, and if equal, then use the timestamp to determine the winner
 
+        return(campaign_info[_campaignId].campaignWinner, campaign_info[_campaignId].campaignBal);
 
     }
 
 
     function WithdrawWinnings(uint256 _campaignId) external payable virtual override nonReentrant {
-
-        uint256 c_Bal =  campaginBalance[_campaignId];
-         campaginBalance[_campaignId] = 0;
-         (bool success, ) = payable(campaignWinner[_campaignId]).call{value: c_Bal}("");
+      require(_stageConfirmation(_campaignId,Stages.Payout),
+        "BettingCampaign: Campaign isn't yet in the payout stage!");
+        uint256 c_Bal =  campaign_info[_campaignId].campaignBal;
+         campaign_info[_campaignId].campaignBal = 0;
+         require(campaign_info[_campaignId].campaignWinner!= address(0),"BettingContract: Invalid payout address");
+         (bool success, ) = payable(campaign_info[_campaignId].campaignWinner).call{value: c_Bal}("");
          require(success, "BettingCampaign: Payout to the winner of the campaign failed!");
 
     }

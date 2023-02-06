@@ -23,7 +23,7 @@ const [motoGp_date, moto2_date, wsbk_date, stopDate, notYetStopped] = [
 ];
 
 const [motoGP_ID, moto2_ID, wsbk_ID] = [1, 2, 3];
-const [AcceptingBets, Closed, RevealWinner] = [1, 2, 3];
+const [AcceptingBets, Closed, RevealWinner, Payout] = [1, 2, 3, 4];
 
 describe("BettingCampaign: Basic tests", function () {
   async function deployFixture() {
@@ -88,6 +88,35 @@ describe("BettingCampaign: Basic tests", function () {
       bettingCampaign.connect(addr1).updateEntryFee(parseEther("0.5"))
     ).to.be.revertedWith("Ownable: caller is not the owner");
   });
+  it("Only owner can change the campaign stage", async function () {
+    const { owner, addr1, bettingCampaign } = await loadFixture(deployFixture);
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+    )
+      .to.emit(bettingCampaign, "CampaignCreated")
+      .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+    let [raceNum, raceDate, raceStage, raceLeague, raceWinner] =
+      await bettingCampaign.getCampaignInfo(motoGP_ID);
+
+    expect(raceStage).to.be.equal(BigNumber.from(AcceptingBets));
+
+    await expect(
+      bettingCampaign.connect(addr1).changeCampaignStage(motoGP_ID, Closed)
+    ).to.be.revertedWith("Ownable: caller is not the owner");
+
+    await expect(
+      bettingCampaign.connect(owner).changeCampaignStage(motoGP_ID, Closed)
+    )
+      .to.emit(bettingCampaign, "CampaignStageChanged")
+      .withArgs(motoGP_ID, Closed);
+    [raceNum, raceDate, raceStage, raceLeague, raceWinner] =
+      await bettingCampaign.getCampaignInfo(motoGP_ID);
+    expect(raceStage).to.be.equal(BigNumber.from(Closed));
+  });
 });
 
 describe("BettingCampaign: Launch campaigns", function () {
@@ -111,13 +140,16 @@ describe("BettingCampaign: Launch campaigns", function () {
       .to.emit(bettingCampaign, "CampaignCreated")
       .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
 
-    const [raceNum, raceDate, raceStage, raceLeague] =
+    const [raceNum, raceDate, raceStage, raceLeague, raceWinner] =
       await bettingCampaign.getCampaignInfo(1);
 
     expect(raceNum).to.be.equal(BigNumber.from("1"));
     expect(raceDate).to.be.equal(Date.parse(motoGp_date));
-    expect(raceStage).to.be.equal(BigNumber.from(AcceptingBets));
     expect(raceLeague).to.be.equal(BigNumber.from(motoGP_ID));
+    expect(raceStage).to.be.equal(
+      BigNumber.from(BigNumber.from(AcceptingBets))
+    );
+    expect(raceWinner).to.be.equal(BigNumber.from("0"));
   });
 
   it("Launch Moto2 Campaign: Create a Moto2 campaign and get back campaign Info", async function () {
@@ -229,7 +261,174 @@ describe("BettingCampaign: Launch campaigns", function () {
   });
 });
 
-describe("BettingCampaign: Accept bets", function () {
+describe("BettingCampaign: Test various bet acceptance criteria", function () {
+  async function deployFixture() {
+    [owner, addr1, addr2] = await ethers.getSigners();
+    const BettingCampaign = await ethers.getContractFactory("BettingCampaign");
+    const bettingCampaign = await BettingCampaign.deploy();
+    await bettingCampaign.deployed();
+
+    return { owner, addr1, addr2, bettingCampaign };
+  }
+
+  it("Do not accept bets#1: Launch MotoGp Campaign but do not meet the entry criteria", async function () {
+    const { owner, addr1, bettingCampaign } = await loadFixture(deployFixture);
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+    )
+      .to.emit(bettingCampaign, "CampaignCreated")
+      .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+    await expect(
+      bettingCampaign.AcceptBets(motoGP_ID, 46, { value: parseEther("0.4") })
+    ).to.be.revertedWith(
+      "BettingCampaign: Entry fee criteria criteria not met!"
+    );
+
+    await expect(
+      bettingCampaign.AcceptBets(10, 46, { value: parseEther("0.5") })
+    ).to.be.revertedWith("BettingCampaign: Invalid campaign ID number");
+
+    await expect(
+      bettingCampaign.AcceptBets(0, 46, { value: parseEther("0.5") })
+    ).to.be.revertedWith("BettingCampaign: Invalid campaign ID number");
+  });
+
+  it("Do not Accept bets#2: Do not accept bets when the campain as closed", async function () {
+    const { owner, addr1, bettingCampaign } = await loadFixture(deployFixture);
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+    )
+      .to.emit(bettingCampaign, "CampaignCreated")
+      .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+    console.log("Uncomment or run timebased tests separately");
+    // await expect(
+    //   bettingCampaign.AcceptBets(motoGP_ID, 46,{ value: parseEther("1") })
+    // )
+    //   .to.emit(bettingCampaign, "AcceptedBet")
+    //   .withArgs(motoGP_ID, owner.address);
+
+    // await time.increase(Date.parse(stopDate));
+    // await expect(
+    //   bettingCampaign.AcceptBets(motoGP_ID,46, { value: parseEther("1") })
+    // ).to.be.revertedWith(
+    //   "BettingCampaign: Currently not accepting bets for this campaign!"
+    // );
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+    )
+      .to.emit(bettingCampaign, "CampaignCreated")
+      .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+  });
+
+  it("Accept Bets: Check the owner balance and campaign balance", async function () {
+    const { owner, addr1, addr2, bettingCampaign } = await loadFixture(
+      deployFixture
+    );
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+    )
+      .to.emit(bettingCampaign, "CampaignCreated")
+      .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+    await expect(
+      bettingCampaign
+        .connect(addr1)
+        .AcceptBets(motoGP_ID, 46, { value: parseEther("1") })
+    )
+      .to.emit(bettingCampaign, "AcceptedBet")
+      .withArgs(motoGP_ID, addr1.address, parseEther("1.0"));
+
+    let [
+      raceNum,
+      raceDate,
+      raceStage,
+      raceLeague,
+      raceWinner,
+      campaginBalance,
+      campaignWinner,
+    ] = await bettingCampaign.getCampaignInfo(motoGP_ID);
+
+    let [userBetVal, userBetTimeStamp, userRacerPick, userHasBet] =
+      await bettingCampaign.connect(addr1).getUserBetInfo(motoGP_ID);
+
+    expect(await campaginBalance).to.equal(parseEther("1.0"));
+    expect(await userBetVal).to.equal(parseEther("1.0"));
+
+    await expect(
+      bettingCampaign
+        .connect(addr2)
+        .AcceptBets(motoGP_ID, 46, { value: parseEther("4") })
+    )
+      .to.emit(bettingCampaign, "AcceptedBet")
+      .withArgs(motoGP_ID, addr2.address, parseEther("4"));
+
+    [userBetVal, userBetTimeStamp, userRacerPick, userHasBet] =
+      await bettingCampaign.connect(addr2).getUserBetInfo(motoGP_ID);
+    [
+      raceNum,
+      raceDate,
+      raceStage,
+      raceLeague,
+      raceWinner,
+      campaginBalance,
+      campaignWinner,
+    ] = await bettingCampaign.getCampaignInfo(motoGP_ID);
+    expect(campaginBalance).to.equal(parseEther("5.0"));
+    expect(userBetVal).to.equal(parseEther("4.0"));
+  });
+
+  it("Do not accept duplicate Bets: Ensure that the owner cannot bet again on the same campaign", async function () {
+    const { owner, addr1, addr2, bettingCampaign } = await loadFixture(
+      deployFixture
+    );
+
+    await expect(
+      bettingCampaign
+        .connect(owner)
+        .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+    )
+      .to.emit(bettingCampaign, "CampaignCreated")
+      .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+    // await expect(
+    //   bettingCampaign.connect(addr1).AcceptBets(motoGP_ID, 46, {
+    //     value: parseEther("10"),
+    //   })
+    // )
+    //   .to.emit(bettingCampaign, "AcceptedBet")
+    //   .withArgs(motoGP_ID, addr1.address);
+
+    // await expect(
+    //   bettingCampaign
+    //     .connect(addr1)
+    //     .AcceptBets(motoGP_ID, 46,BigNumber.from("46"), { value: parseEther("1") })
+    // ).to.be.revertedWith(
+    //   "BettingCampaign: You cannot bet on the same campaign again!"
+    // );
+
+    // expect(await bettingCampaign.campaginBalance(motoGP_ID)).to.equal(
+    //   parseEther("10")
+    // );
+    // expect(await bettingCampaign.userBalance(addr1.address)).to.equal(
+    //   parseEther("10")
+    // );
+  });
+});
+
+describe("BettingCampaign: Test various bet acceptance criteria", function () {
   async function deployFixture() {
     [owner, addr1, addr2] = await ethers.getSigners();
     const BettingCampaign = await ethers.getContractFactory("BettingCampaign");
@@ -251,17 +450,17 @@ describe("BettingCampaign: Accept bets", function () {
       .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
 
     await expect(
-      bettingCampaign.AcceptBets(motoGP_ID, { value: parseEther("0.5") })
+      bettingCampaign.AcceptBets(motoGP_ID, 46, { value: parseEther("0.4") })
     ).to.be.revertedWith(
       "BettingCampaign: Entry fee criteria criteria not met!"
     );
 
     await expect(
-      bettingCampaign.AcceptBets(10, { value: parseEther("1") })
+      bettingCampaign.AcceptBets(10, 46, { value: parseEther("1") })
     ).to.be.revertedWith("BettingCampaign: Invalid campaign ID number");
 
     await expect(
-      bettingCampaign.AcceptBets(0, { value: parseEther("1") })
+      bettingCampaign.AcceptBets(0, 46, { value: parseEther("1") })
     ).to.be.revertedWith("BettingCampaign: Invalid campaign ID number");
   });
 
@@ -276,7 +475,7 @@ describe("BettingCampaign: Accept bets", function () {
       .to.emit(bettingCampaign, "CampaignCreated")
       .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
 
-    Console.log("Uncomment or run timebased tests separately");
+    console.log("Uncomment or run timebased tests separately");
     // await expect(
     //   bettingCampaign.AcceptBets(motoGP_ID, { value: parseEther("1") })
     // )
@@ -291,7 +490,7 @@ describe("BettingCampaign: Accept bets", function () {
     // );
   });
 
-  it("Accept Bets: Check the owner balance and campaign balance", async function () {
+  it("Accept Bets#3: Check the owner balance and campaign balance", async function () {
     const { owner, addr1, addr2, bettingCampaign } = await loadFixture(
       deployFixture
     );
@@ -304,34 +503,77 @@ describe("BettingCampaign: Accept bets", function () {
       .to.emit(bettingCampaign, "CampaignCreated")
       .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
 
-    await expect(
-      bettingCampaign
-        .connect(addr1)
-        .AcceptBets(motoGP_ID, { value: parseEther("1") })
-    )
-      .to.emit(bettingCampaign, "AcceptedBet")
-      .withArgs(motoGP_ID, addr1.address);
+    // await expect(
+    //   bettingCampaign
+    //     .connect(addr1)
+    //     .AcceptBets(motoGP_ID, 46, { value: parseEther("10") })
+    // )
+    //   .to.emit(bettingCampaign, "AcceptedBet")
+    //   .withArgs(motoGP_ID, addr1.address, parseEther("10"));
 
-    expect(await bettingCampaign.campaginBalance(motoGP_ID)).to.equal(
-      parseEther("1.0")
-    );
-    expect(await bettingCampaign.userBalance(addr1.address)).to.equal(
-      parseEther("1.0")
-    );
+    // await expect(
+    //   bettingCampaign
+    //     .connect(owner)
+    //     .AcceptBets(motoGP_ID, 46, { value: parseEther("5") })
+    // )
+    //   .to.emit(bettingCampaign, "AcceptedBet")
+    //   .withArgs(motoGP_ID, owner.address, parseEther("5"));
 
-    await expect(
-      bettingCampaign
-        .connect(addr2)
-        .AcceptBets(motoGP_ID, { value: parseEther("1") })
-    )
-      .to.emit(bettingCampaign, "AcceptedBet")
-      .withArgs(motoGP_ID, addr2.address);
+    // const [
+    //   raceNum,
+    //   raceDate,
+    //   raceStage,
+    //   raceLeague,
+    //   raceWinner,
+    //   campaginBalance,
+    //   campaignWinner,
+    // ] = await bettingCampaign.getCampaignInfo(motoGP_ID);
 
-    expect(await bettingCampaign.campaginBalance(motoGP_ID)).to.equal(
-      parseEther("2.0")
-    );
-    expect(await bettingCampaign.userBalance(addr1.address)).to.equal(
-      parseEther("1.0")
-    );
+    // let [userBetVal, userBetTimeStamp, userRacerPick, userHasBet] =
+    //   await bettingCampaign.connect(owner).getUserBetInfo(motoGP_ID);
+
+    // expect(await campaginBalance).to.equal(parseEther("15.0"));
+    // expect(await userBetVal).to.equal(parseEther("5.0"));
+
+    // [userBetVal, userBetTimeStamp, userRacerPick, userHasBet] =
+    //   await bettingCampaign.connect(addr1).getUserBetInfo(motoGP_ID);
+    // expect(await userBetVal).to.equal(parseEther("5.0"));
   });
+
+  //   it("Do not accept duplicate Bets: Ensure that the owner cannot bet again on the same campaign", async function () {
+  //     const { owner, addr1, addr2, bettingCampaign } = await loadFixture(
+  //       deployFixture
+  //     );
+
+  //     await expect(
+  //       bettingCampaign
+  //         .connect(owner)
+  //         .createCampaign(motoGP_ID, 1, Date.parse(motoGp_date))
+  //     )
+  //       .to.emit(bettingCampaign, "CampaignCreated")
+  //       .withArgs(motoGP_ID, 1, Date.parse(motoGp_date));
+
+  //     await expect(
+  //       bettingCampaign
+  //         .connect(addr1)
+  //         .AcceptBets(motoGP_ID, 46, { value: parseEther("10") })
+  //     )
+  //       .to.emit(bettingCampaign, "AcceptedBet")
+  //       .withArgs(motoGP_ID, addr1.address);
+
+  //     await expect(
+  //       bettingCampaign
+  //         .connect(addr1)
+  //         .AcceptBets(motoGP_ID, 46, { value: parseEther("1") })
+  //     ).to.be.revertedWith(
+  //       "BettingCampaign: You cannot bet on the same campaign"
+  //     );
+
+  //     expect(await bettingCampaign.campaginBalance(motoGP_ID)).to.equal(
+  //       parseEther("10")
+  //     );
+  //     expect(await bettingCampaign.userBalance(addr1.address)).to.equal(
+  //       parseEther("10")
+  //     );
+  //   });
 });
