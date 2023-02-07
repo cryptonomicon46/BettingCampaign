@@ -7,8 +7,8 @@ Betting campaign for sports
 3. These mints must happen 12 midnight on racedays
 4. Betting must close wednesday 12 midnight on race weeks
 5. Conflict resolution on Bets are done by the following in order of precedence
-   5.1. Bet Amount
-   5.2. Bet time ( If the bet amounts are same for two users, whoever was first wins)
+   (a)Bet Amount
+   (b) Bet time ( If the bet amounts are same for two users, whoever was first wins)
    Winner gets all the amount 7. 5% platform fees
 
 Race categories Categories
