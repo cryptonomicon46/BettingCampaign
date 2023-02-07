@@ -50,8 +50,15 @@ interface ICampaign {
      * event CampaignStageChanged emitted when the campaign stage is changed by the owner of the contract
      */
     event CampaignStageChanged(uint256 _campaignId, Stages _stage);
+
+
     /**
-     * 
+     * TokenURIChanged event emitted when the token URI is set or changed by the owner of the contract
+     */
+    event TokenURIChanged(string URI_,uint256 _tokenId);
+
+    /**
+     *  CampaignDetails Struct captures all the details of the campain through its various stages
      */
     struct CampaignDetails { 
         uint256 raceNum;
@@ -63,6 +70,9 @@ interface ICampaign {
         address campaignWinner;
         uint256 winnerPayout;
     }
+    /**
+     * Bidder Struct captures all the information regarding the bidder for each campaign 
+     */
 
         struct Bidder {
         uint userBetVal;

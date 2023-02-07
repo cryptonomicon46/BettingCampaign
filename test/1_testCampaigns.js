@@ -13,6 +13,9 @@ const {
   isCallTrace,
 } = require("hardhat/internal/hardhat-network/stack-traces/message-trace");
 const { Console } = require("console");
+const {
+  experimentalAddHardhatNetworkMessageTraceHook,
+} = require("hardhat/config");
 
 const [motoGp_date, moto2_date, wsbk_date, stopDate, notYetStopped] = [
   new Date("2/12/2023"),
@@ -576,5 +579,15 @@ describe("BettingCampaign: Owner creates a motogp campaigin, sets RaceWinner, Pa
 
     expect(finalDevBal).to.be.gt(initialDevBal);
     expect(finalWinnerBal).to.be.gt(initialWinnerBal);
+
+    //Check NFT balance of the winner
+
+    expect(await bettingCampaign.balanceOf(addr2.address, 46)).to.equal(
+      BigNumber.from("1")
+    );
+
+    expect(await bettingCampaign.balanceOf(addr1.address, 46)).to.equal(
+      BigNumber.from("0")
+    );
   });
 });
