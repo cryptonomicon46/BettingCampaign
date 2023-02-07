@@ -11,7 +11,7 @@ Betting campaign for sports
 Bet amount 6. Bet time ( If the bet amounts are same for two users, whoever was first wins)
 Winner gets all the amount 7. 5% platform fees
 
-Categories
+Race categories Categories
 
 1. MotoGP
 2. Moto2
